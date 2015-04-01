@@ -33,6 +33,7 @@ type transport struct {
   ctx *godtls.DtlsContext
   dtls *godtls.DtlsTransport
   sctp *gosctp.SctpTransport
+  stream int
   role int
   remotePort int
 }
@@ -86,6 +87,7 @@ func (p *Peer) newTransport() (*transport, error) {
     ctx: ctx,
     dtls: dtls,
     sctp: sctp,
+    stream: stream,
     role: roleClient,
   }, nil
 }
@@ -130,14 +132,14 @@ func (t *transport) generateOfferSdp() (string, error) {
   return strings.Join(offer, "\r\n"), nil
 }
 
-func (t *transport) parseOfferSdp(offer string) error {
+func (t *transport) parseOfferSdp(offer string) (int, error) {
   sdps := strings.Split(offer, "\r\n")
   for i := range sdps {
     if strings.HasPrefix(sdps[i], "a=sctpmap:") {
       sctpmap := strings.Split(sdps[i], " ")[0]
       port, err := strconv.Atoi(strings.Split(sctpmap, ":")[1])
       if err != nil {
-        return err
+        return 0, err
       }
       t.remotePort = port
     } else if strings.HasPrefix(sdps[i], "a=setup:active") {
@@ -151,9 +153,29 @@ func (t *transport) parseOfferSdp(offer string) error {
     }
   }
 
-  _, err := t.ice.ParseSdp(strings.Join(sdps, "\n"))
+  rv, err := t.ice.ParseSdp(strings.Join(sdps, "\n"))
   if err != nil {
-    return err
+    return 0, err
   }
-  return nil
+  return int(rv), nil
+}
+
+func (t *transport) parseCandidateSdp(candidates string) int {
+  sdps := strings.Split(candidates, "\r\n")
+  count := 0
+  for i := range sdps {
+    if sdps[i] == "" {
+      continue
+    }
+    cand, err := t.ice.ParseCandidateSdp(t.stream, sdps[i])
+    if err != nil {
+      continue
+    }
+    rv, err := t.ice.AddRemoteCandidate(t.stream, cand)
+    if err != nil {
+      continue
+    }
+    count = count + rv
+  }
+  return count
 }

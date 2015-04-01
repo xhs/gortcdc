@@ -2,6 +2,7 @@ package gortcdc
 
 import (
   "net"
+  "errors"
 )
 
 type Peer struct {
@@ -50,18 +51,25 @@ func (p *Peer) GenerateOfferSdp() (string, error) {
   return offer, nil
 }
 
-func (p *Peer) ParseOfferSdp(offer string) error {
+func (p *Peer) ParseOfferSdp(offer string) (int, error) {
   if p.trans == nil {
     t, err := p.newTransport()
     if err != nil {
-      return err
+      return 0, err
     }
     p.trans = t
   }
 
-  if err := p.trans.parseOfferSdp(offer); err != nil {
-    return err
+  rv, err := p.trans.parseOfferSdp(offer)
+  if err != nil {
+    return 0, err
   }
-  return nil
+  return rv, nil
 }
 
+func (p *Peer) ParseCandidateSdp(candidates string) (int, error) {
+  if p.trans == nil {
+    return 0, errors.New("transport nil")
+  }
+  return p.trans.parseCandidateSdp(candidates), nil
+}

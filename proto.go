@@ -87,14 +87,14 @@ func (p *Peer) Run(s Signaller) error {
   signalChan := s.ReceiveFrom()
   for {
     select {
-    case cand := <-p.ice.Candidates:
+    case cand := <-p.ice.CandidateChannel:
       candidate, err := json.Marshal(&Signal{"candidate", cand})
       if err != nil {
         return err
       }
       s.Send(candidate)
       continue
-    case e := <-p.ice.Events:
+    case e := <-p.ice.EventChannel:
       if e == goblice.EventNegotiationDone {
         break
       }
@@ -133,7 +133,7 @@ func (p *Peer) Run(s Signaller) error {
 
   go func () {
     for {
-      data := <-p.ice.DataToRead
+      data := <-p.ice.DataChannel
       p.dtls.Feed(data)
     }
   }()

@@ -8,14 +8,24 @@ import (
   "strconv"
   "encoding/json"
 
+  log "github.com/Sirupsen/logrus"
+
   "github.com/xhs/goblice"
   "github.com/xhs/godtls"
   "github.com/xhs/gosctp"
 )
 
+func init() {
+  log.SetLevel(log.DebugLevel)
+}
+
 const (
   roleClient = 0
   roleServer = 1
+
+  stateClosed = 0
+  stateConnecting = 1
+  stateConnected = 2
 )
 
 type Peer struct {
@@ -25,6 +35,7 @@ type Peer struct {
   sctp *gosctp.SctpTransport
   role int
   remotePort int
+  state int
 }
 
 func NewPeer() (*Peer, error) {
@@ -57,6 +68,7 @@ func NewPeer() (*Peer, error) {
     dtls: dtls,
     sctp: sctp,
     role: roleClient,
+    state: stateClosed,
   }
   return p, nil
 }
@@ -79,8 +91,10 @@ type Signal struct {
 }
 
 func (p *Peer) Run(s Signaller) error {
-  if err := p.ice.GatherCandidates(); err != nil {
-    return err
+  if p.state == stateConnecting {
+    if err := p.ice.GatherCandidates(); err != nil {
+      return err
+    }
   }
   go p.ice.Run()
 
@@ -100,6 +114,7 @@ func (p *Peer) Run(s Signaller) error {
       }
       continue
     case data := <-signalChan:
+      log.Debug("signal received:", string(data))
       sig := &Signal{}
       if err := json.Unmarshal(data, sig); err != nil {
         continue
@@ -117,6 +132,7 @@ func (p *Peer) Run(s Signaller) error {
           return err
         }
         s.Send(answer)
+        p.ice.GatherCandidates()
       } else if sig.Type == "answer" {
         p.ParseOfferSdp(sig.Value)
       }
@@ -124,16 +140,20 @@ func (p *Peer) Run(s Signaller) error {
     }
     break
   }
+  log.Debug("ICE negotiation done")
 
   if p.role == roleClient {
+    log.Debug("DTLS connecting")
     p.dtls.SetConnectState()
   } else {
+    log.Debug("DTLS accepting")
     p.dtls.SetAcceptState()
   }
 
   go func () {
     for {
       data := <-p.ice.DataChannel
+      log.Debug(len(data), " bytes of DTLS data received")
       p.dtls.Feed(data)
     }
   }()
@@ -145,7 +165,13 @@ func (p *Peer) Run(s Signaller) error {
       <-tick
       n, _ := p.dtls.Spew(buf[:])
       if n > 0 {
-        p.ice.Send(buf[:n])
+        log.Debug(n, " bytes of DTLS data ready")
+        rv, err := p.ice.Send(buf[:n])
+        if err != nil {
+          log.Warn(err)
+        } else {
+          log.Debug(rv, " bytes of DTLS data sent")
+        }
       }
     }
   }()
@@ -153,6 +179,7 @@ func (p *Peer) Run(s Signaller) error {
   if err := p.dtls.Handshake(); err != nil {
     return err
   }
+  log.Debug("DTLS handshake done")
 
   return nil
 }
@@ -196,8 +223,10 @@ func (p *Peer) GenerateOfferSdp() (string, error) {
   }
   offer = append(offer, "a=mid:data")
   offer = append(offer, fmt.Sprintf("a=sctpmap:%d webrtc-datachannel 1024", p.sctp.Port))
-
   offer = append(offer, "")
+
+  p.state = stateConnecting
+
   return strings.Join(offer, "\r\n"), nil
 }
 
@@ -226,6 +255,9 @@ func (p *Peer) ParseOfferSdp(offer string) (int, error) {
   if err != nil {
     return 0, err
   }
+
+  p.state = stateConnecting
+
   return int(rv), nil
 }
 

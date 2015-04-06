@@ -3,6 +3,7 @@ package gortcdc_test
 import (
   "testing"
   "log"
+  "encoding/json"
 
   "github.com/xhs/gortcdc"
 )
@@ -39,4 +40,48 @@ func TestParseOfferSdp(t *testing.T) {
 
   newOffer, _ := peer.GenerateOfferSdp()
   log.Print(newOffer)
+}
+
+type dummySignaller struct {
+  localCh, remoteCh chan []byte
+}
+
+func newDummySignaller(localCh, remoteCh chan []byte) (*dummySignaller) {
+  return &dummySignaller{localCh, remoteCh}
+}
+
+func (d *dummySignaller) Send(data []byte) error {
+  d.remoteCh <- data
+  return nil
+}
+
+func (d *dummySignaller) ReceiveFrom() <-chan []byte {
+  return d.localCh
+}
+
+func TestSignalling(t *testing.T) {
+  clientCh := make(chan []byte, 16)
+  serverCh := make(chan []byte, 16)
+  clientSignaller := newDummySignaller(clientCh, serverCh)
+  serverSignaller := newDummySignaller(serverCh, clientCh)
+
+  serverPeer, err := gortcdc.NewPeer()
+  if err != nil {
+    t.Error(err)
+  }
+  go serverPeer.Run(serverSignaller)
+
+  clientPeer, err := gortcdc.NewPeer()
+  if err != nil {
+    t.Error(err)
+  }
+
+  sdp, err := clientPeer.GenerateOfferSdp()
+  if err != nil {
+    t.Error(err)
+  }
+  offer, err := json.Marshal(&gortcdc.Signal{"offer", sdp})
+  clientSignaller.Send(offer)
+
+  clientPeer.Run(clientSignaller)
 }

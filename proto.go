@@ -160,7 +160,7 @@ func (p *Peer) Run(s Signaller) error {
 
   go func () {
     var buf [1 << 16]byte
-    tick := time.Tick(2 * time.Millisecond)
+    tick := time.Tick(4 * time.Millisecond)
     for {
       <-tick
       n, _ := p.dtls.Spew(buf[:])
@@ -180,6 +180,38 @@ func (p *Peer) Run(s Signaller) error {
     return err
   }
   log.Debug("DTLS handshake done")
+
+  go func () {
+    for {
+      data := <-p.sctp.BufferChannel
+      log.Debug(len(data), " bytes of SCTP data ready")
+      p.dtls.Write(data)
+    }
+  }()
+
+  go func () {
+    var buf [1 << 16]byte
+    tick := time.Tick(4 * time.Millisecond)
+    for {
+      <-tick
+      n, _ := p.dtls.Read(buf[:])
+      if n > 0 {
+        log.Debug(n, " bytes of SCTP data received")
+        p.sctp.Feed(buf[:n])
+      }
+    }
+  }()
+
+  if p.role == roleClient {
+    if err := p.sctp.Connect(p.remotePort); err != nil {
+      return err
+    }
+  } else {
+    if err := p.sctp.Accept(); err != nil {
+      return err
+    }
+  }
+  log.Debug("SCTP handshake done")
 
   return nil
 }

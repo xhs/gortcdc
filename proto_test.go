@@ -85,3 +85,21 @@ func TestSignalling(t *testing.T) {
 
   clientPeer.Run(clientSignaller)
 }
+
+func TestDcepRequestCodec(t *testing.T) {
+  r1 := &gortcdc.DcepRequestMessage{
+    MessageType: gortcdc.DcepRequest,
+    ChannelType: gortcdc.ChannelReliable,
+    Priority: gortcdc.PriorityNormal,
+    Label: "test",
+    Protocol: "foobar",
+  }
+  buf := r1.Encode()
+  log.Print(buf)
+
+  r2 := &gortcdc.DcepRequestMessage{}
+  if err := r2.Decode(buf); err != nil {
+    t.Error(err)
+  }
+  log.Print(r2)
+}

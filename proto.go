@@ -151,10 +151,17 @@ func (p *Peer) Run(s Signaller) error {
   }
 
   go func () {
+    var buf [1 << 16]byte
     for {
       data := <-p.ice.DataChannel
       log.Debug(len(data), " bytes of DTLS data received")
       p.dtls.Feed(data)
+
+      n, _ := p.dtls.Read(buf[:])
+      if n > 0 {
+        log.Debug(n, " bytes of SCTP data received")
+        p.sctp.Feed(buf[:n])
+      }
     }
   }()
 
@@ -186,19 +193,6 @@ func (p *Peer) Run(s Signaller) error {
       data := <-p.sctp.BufferChannel
       log.Debug(len(data), " bytes of SCTP data ready")
       p.dtls.Write(data)
-    }
-  }()
-
-  go func () {
-    var buf [1 << 16]byte
-    tick := time.Tick(4 * time.Millisecond)
-    for {
-      <-tick
-      n, _ := p.dtls.Read(buf[:])
-      if n > 0 {
-        log.Debug(n, " bytes of SCTP data received")
-        p.sctp.Feed(buf[:n])
-      }
     }
   }()
 

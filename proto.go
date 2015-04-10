@@ -228,7 +228,7 @@ func (p *Peer) GenerateOfferSdp() (string, error) {
   offer = append(offer, "s=-")
   offer = append(offer, "t=0 0")
   offer = append(offer, "a=msid-semantic: WMS")
-  offer = append(offer, fmt.Sprintf("m=application 1 DTLS/SCTP %d", p.sctp.Port))
+  offer = append(offer, "m=application 1 UDP/DTLS/SCTP webrtc-datachannel")
   offer = append(offer, "c=IN IP4 0.0.0.0")
 
   sdp := p.ice.GenerateSdp()
@@ -248,7 +248,7 @@ func (p *Peer) GenerateOfferSdp() (string, error) {
     offer = append(offer, "a=setup:passive")
   }
   offer = append(offer, "a=mid:data")
-  offer = append(offer, fmt.Sprintf("a=sctpmap:%d webrtc-datachannel 1024", p.sctp.Port))
+  offer = append(offer, fmt.Sprintf("a=sctp-port:%d", p.sctp.Port))
   offer = append(offer, "")
 
   p.state = stateConnecting
@@ -259,7 +259,7 @@ func (p *Peer) GenerateOfferSdp() (string, error) {
 func (p *Peer) ParseOfferSdp(offer string) (int, error) {
   sdps := strings.Split(offer, "\r\n")
   for i := range sdps {
-    if strings.HasPrefix(sdps[i], "a=sctpmap:") {
+    if strings.HasPrefix(sdps[i], "a=sctp-port:") {
       sctpmap := strings.Split(sdps[i], " ")[0]
       port, err := strconv.Atoi(strings.Split(sctpmap, ":")[1])
       if err != nil {

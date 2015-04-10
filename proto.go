@@ -165,11 +165,45 @@ func (p *Peer) Run(s Signaller) error {
     }
   }()
 
+  handshakeDone := make(chan bool)
   go func () {
     var buf [1 << 16]byte
     tick := time.Tick(4 * time.Millisecond)
     for {
-      <-tick
+      select {
+      case <-tick:
+        n, _ := p.dtls.Spew(buf[:])
+        if n > 0 {
+          log.Debug(n, " bytes of DTLS data ready")
+          rv, err := p.ice.Send(buf[:n])
+          if err != nil {
+            log.Warn(err)
+          } else {
+            log.Debug(rv, " bytes of DTLS data sent")
+          }
+        }
+        continue
+      case <-handshakeDone:
+        close(handshakeDone)
+        break
+      }
+      break
+    }
+  }()
+
+  if err := p.dtls.Handshake(); err != nil {
+    return err
+  }
+  handshakeDone <- true
+  log.Debug("DTLS handshake done")
+
+  go func () {
+    var buf [1 << 16]byte
+    for {
+      data := <-p.sctp.BufferChannel
+      log.Debug(len(data), " bytes of SCTP data ready")
+      p.dtls.Write(data)
+
       n, _ := p.dtls.Spew(buf[:])
       if n > 0 {
         log.Debug(n, " bytes of DTLS data ready")
@@ -183,19 +217,6 @@ func (p *Peer) Run(s Signaller) error {
     }
   }()
 
-  if err := p.dtls.Handshake(); err != nil {
-    return err
-  }
-  log.Debug("DTLS handshake done")
-
-  go func () {
-    for {
-      data := <-p.sctp.BufferChannel
-      log.Debug(len(data), " bytes of SCTP data ready")
-      p.dtls.Write(data)
-    }
-  }()
-
   if p.role == roleClient {
     if err := p.sctp.Connect(p.remotePort); err != nil {
       return err
@@ -205,6 +226,7 @@ func (p *Peer) Run(s Signaller) error {
       return err
     }
   }
+  p.state = stateConnected
   log.Debug("SCTP handshake done")
 
   return nil
